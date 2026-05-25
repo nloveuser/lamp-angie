@@ -5,6 +5,10 @@
 #
 # Usage:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/nloveuser/lamp-angie/refs/heads/main/install.sh)
+#
+# version: 1.0.0
+# change-log:
+#   1.0.0 - Initial release
 
 set -euo pipefail
 
@@ -14,6 +18,9 @@ WEBROOT="/var/www/html"
 ACME_EMAIL=""
 DOMAIN=""
 
+SCRIPT_VERSION=$(grep '^# version:' "$0" | head -1 | awk '{print $3}')
+SCRIPT_CHANGELOG=$(grep '^#   ' "$0" | sed 's/^#   /  /')
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info() { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
@@ -21,23 +28,15 @@ die()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 [[ $EUID -ne 0 ]] && die "Run as root"
 
+echo -e "${GREEN}install-lamp-angie${NC} v${SCRIPT_VERSION}"
+echo ""
+
 # ── Detect distro ─────────────────────────────────────────────────────────────
 . /etc/os-release
 DISTRO="${ID}"
 CODENAME="${VERSION_CODENAME}"
 [[ "${DISTRO}" =~ ^(ubuntu|debian)$ ]] || die "Unsupported distro: ${DISTRO}"
 info "Distro: ${DISTRO} ${CODENAME}"
-
-# Angie repo codename mapping
-# jammy (22.04) -> focal, noble (24.04) -> noble
-case "${DISTRO}:${CODENAME}" in
-  ubuntu:jammy)   ANGIE_CODENAME="focal" ;;
-  ubuntu:noble)   ANGIE_CODENAME="noble" ;;
-  ubuntu:focal)   ANGIE_CODENAME="focal" ;;
-  debian:bookworm) ANGIE_CODENAME="bookworm" ;;
-  debian:bullseye) ANGIE_CODENAME="bullseye" ;;
-  *) warn "Unknown codename ${CODENAME}, trying as-is"; ANGIE_CODENAME="${CODENAME}" ;;
-esac
 
 # ── Interactive prompts ───────────────────────────────────────────────────────
 echo ""
@@ -54,15 +53,16 @@ echo ""
 # ── Base deps ─────────────────────────────────────────────────────────────────
 info "Installing base deps..."
 apt-get update -qq
-apt-get install -y -qq curl gnupg2 lsb-release ca-certificates apt-transport-https
+apt-get install -y -qq curl ca-certificates
 
 # ── Angie ─────────────────────────────────────────────────────────────────────
 info "Adding Angie repo..."
 curl -fsSL https://angie.software/keys/angie-signing.gpg \
-  | gpg --dearmor -o /usr/share/keyrings/angie-signing.gpg
+  -o /etc/apt/trusted.gpg.d/angie-signing.gpg
 
-echo "deb [signed-by=/usr/share/keyrings/angie-signing.gpg] \
-https://download.angie.software/angie/${DISTRO}/ ${ANGIE_CODENAME} main" \
+# Official format from angie.software/angie/docs/installation/oss_packages/
+# deb https://download.angie.software/angie/<ID>/<VERSION_ID> <VERSION_CODENAME> main
+echo "deb https://download.angie.software/angie/${DISTRO}/${VERSION_ID} ${CODENAME} main" \
   > /etc/apt/sources.list.d/angie.list
 
 apt-get update -qq
@@ -199,6 +199,7 @@ echo ""
 echo -e "${GREEN}══════════════════════════════════════════${NC}"
 echo -e "${GREEN}  Installation complete!${NC}"
 echo -e "${GREEN}══════════════════════════════════════════${NC}"
+echo -e "  Script:   v${SCRIPT_VERSION}"
 echo -e "  Angie:    $(angie -v 2>&1 | head -1)"
 echo -e "  PHP:      $(php${PHP_VER} -r 'echo PHP_VERSION;')"
 echo -e "  MariaDB:  $(mysql --version | awk '{print $1,$2,$3}')"
