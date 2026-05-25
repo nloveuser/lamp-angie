@@ -52,8 +52,8 @@ echo ""
 
 # ── Base deps ─────────────────────────────────────────────────────────────────
 info "Installing base deps..."
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates
+apt-get update -qq > /dev/null 2>&1
+apt-get install -y -qq curl ca-certificates > /dev/null 2>&1
 
 # ── Angie ─────────────────────────────────────────────────────────────────────
 info "Adding Angie repo..."
@@ -72,17 +72,17 @@ apt-get install -y -qq angie
 # ── PHP 8.4 ───────────────────────────────────────────────────────────────────
 info "Adding ondrej/php repo (PHP ${PHP_VER})..."
 if [[ "${DISTRO}" == "ubuntu" ]]; then
-  apt-get install -y -qq software-properties-common
-  add-apt-repository -y ppa:ondrej/php
+  apt-get install -y -qq software-properties-common > /dev/null 2>&1
+  add-apt-repository -y ppa:ondrej/php > /dev/null 2>&1
 else
   curl -fsSL https://packages.sury.org/php/apt.gpg \
-    | gpg --dearmor -o /usr/share/keyrings/sury-php.gpg
+    | gpg --dearmor -o /usr/share/keyrings/sury-php.gpg 2>/dev/null
   echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] \
 https://packages.sury.org/php/ ${CODENAME} main" \
     > /etc/apt/sources.list.d/sury-php.list
 fi
 
-apt-get update -qq
+apt-get update -qq > /dev/null 2>&1
 info "Installing PHP ${PHP_VER}-FPM + modules..."
 apt-get install -y -qq \
   "php${PHP_VER}-fpm" "php${PHP_VER}-cli" \
@@ -90,19 +90,23 @@ apt-get install -y -qq \
   "php${PHP_VER}-xml" "php${PHP_VER}-curl" \
   "php${PHP_VER}-zip" "php${PHP_VER}-gd" \
   "php${PHP_VER}-bcmath" "php${PHP_VER}-intl" \
-  "php${PHP_VER}-opcache"
+  "php${PHP_VER}-opcache" > /dev/null 2>&1
 
 # ── MariaDB ───────────────────────────────────────────────────────────────────
 info "Installing MariaDB..."
-apt-get install -y -qq mariadb-server
+apt-get install -y -qq mariadb-server > /dev/null 2>&1
 
 info "Securing MariaDB..."
-mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('${DB_ROOT_PASS}');"
-mysql -e "DELETE FROM mysql.user WHERE User='';"
-mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');"
-mysql -e "DROP DATABASE IF EXISTS test;"
-mysql -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-mysql -e "FLUSH PRIVILEGES;"
+# MariaDB fresh install uses unix_socket auth — connect via sudo mysql
+mysql_exec() { mysql --user=root "$@" 2>/dev/null; }
+
+mysql_exec -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('${DB_ROOT_PASS}');" \
+  || mysql_exec -e "UPDATE mysql.user SET Password=PASSWORD('${DB_ROOT_PASS}') WHERE User='root';"
+mysql_exec -e "DELETE FROM mysql.user WHERE User='';"
+mysql_exec -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');"
+mysql_exec -e "DROP DATABASE IF EXISTS test;"
+mysql_exec -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
+mysql_exec -e "FLUSH PRIVILEGES;"
 
 # ── fastcgi-php snippet ───────────────────────────────────────────────────────
 PHP_SOCK="/run/php/php${PHP_VER}-fpm.sock"
@@ -190,9 +194,9 @@ chown www-data:www-data "${WEBROOT}/info.php"
 
 # ── Services ──────────────────────────────────────────────────────────────────
 info "Enabling services..."
-systemctl enable --now mariadb
-systemctl enable --now "php${PHP_VER}-fpm"
-angie -t && systemctl enable --now angie
+systemctl enable --now mariadb > /dev/null 2>&1
+systemctl enable --now "php${PHP_VER}-fpm" > /dev/null 2>&1
+angie -t > /dev/null 2>&1 && systemctl enable --now angie > /dev/null 2>&1
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
