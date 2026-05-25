@@ -2,6 +2,9 @@
 # LAMP-style stack: Angie + PHP 8.4-FPM + MariaDB + Auto SSL (ACME built-in)
 # Supported: Ubuntu 22.04/24.04, Debian 12
 # Run as root
+#
+# Usage:
+#   bash <(curl -fsSL https://raw.githubusercontent.com/nloveuser/lamp-angie/refs/heads/main/install.sh)
 
 set -euo pipefail
 
@@ -24,6 +27,17 @@ DISTRO="${ID}"
 CODENAME="${VERSION_CODENAME}"
 [[ "${DISTRO}" =~ ^(ubuntu|debian)$ ]] || die "Unsupported distro: ${DISTRO}"
 info "Distro: ${DISTRO} ${CODENAME}"
+
+# Angie repo codename mapping
+# jammy (22.04) -> focal, noble (24.04) -> noble
+case "${DISTRO}:${CODENAME}" in
+  ubuntu:jammy)   ANGIE_CODENAME="focal" ;;
+  ubuntu:noble)   ANGIE_CODENAME="noble" ;;
+  ubuntu:focal)   ANGIE_CODENAME="focal" ;;
+  debian:bookworm) ANGIE_CODENAME="bookworm" ;;
+  debian:bullseye) ANGIE_CODENAME="bullseye" ;;
+  *) warn "Unknown codename ${CODENAME}, trying as-is"; ANGIE_CODENAME="${CODENAME}" ;;
+esac
 
 # ── Interactive prompts ───────────────────────────────────────────────────────
 echo ""
@@ -48,7 +62,7 @@ curl -fsSL https://angie.software/keys/angie-signing.gpg \
   | gpg --dearmor -o /usr/share/keyrings/angie-signing.gpg
 
 echo "deb [signed-by=/usr/share/keyrings/angie-signing.gpg] \
-https://download.angie.software/angie/${DISTRO}/ ${CODENAME} main" \
+https://download.angie.software/angie/${DISTRO}/ ${ANGIE_CODENAME} main" \
   > /etc/apt/sources.list.d/angie.list
 
 apt-get update -qq
