@@ -18,8 +18,8 @@ WEBROOT="/var/www/html"
 ACME_EMAIL=""
 DOMAIN=""
 
-SCRIPT_VERSION=$(grep '^# version:' "$0" | head -1 | awk '{print $3}')
-SCRIPT_CHANGELOG=$(grep '^#   ' "$0" | sed 's/^#   /  /')
+SCRIPT_VERSION="1.0.0"
+SCRIPT_CHANGELOG="1.0.0 - Initial release"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info() { echo -e "${GREEN}[+]${NC} $*"; }
