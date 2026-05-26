@@ -95,18 +95,23 @@ apt-get install -y -qq \
 # ── MariaDB ───────────────────────────────────────────────────────────────────
 info "Installing MariaDB..."
 apt-get install -y -qq mariadb-server > /dev/null 2>&1
+systemctl enable --now mariadb > /dev/null 2>&1
+
+# Wait for MariaDB to be ready
+for i in $(seq 1 15); do
+  mariadb --user=root -e "SELECT 1;" > /dev/null 2>&1 && break
+  sleep 1
+done
 
 info "Securing MariaDB..."
-# MariaDB fresh install uses unix_socket auth — connect via sudo mysql
-mysql_exec() { mysql --user=root "$@" 2>/dev/null; }
-
-mysql_exec -e "ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('${DB_ROOT_PASS}');" \
-  || mysql_exec -e "UPDATE mysql.user SET Password=PASSWORD('${DB_ROOT_PASS}') WHERE User='root';"
-mysql_exec -e "DELETE FROM mysql.user WHERE User='';"
-mysql_exec -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');"
-mysql_exec -e "DROP DATABASE IF EXISTS test;"
-mysql_exec -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-mysql_exec -e "FLUSH PRIVILEGES;"
+mariadb --user=root > /dev/null 2>&1 <<EOF
+ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('${DB_ROOT_PASS}');
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';
+FLUSH PRIVILEGES;
+EOF
 
 # ── fastcgi-php snippet ───────────────────────────────────────────────────────
 PHP_SOCK="/run/php/php${PHP_VER}-fpm.sock"
@@ -194,7 +199,6 @@ chown www-data:www-data "${WEBROOT}/info.php"
 
 # ── Services ──────────────────────────────────────────────────────────────────
 info "Enabling services..."
-systemctl enable --now mariadb > /dev/null 2>&1
 systemctl enable --now "php${PHP_VER}-fpm" > /dev/null 2>&1
 angie -t > /dev/null 2>&1 && systemctl enable --now angie > /dev/null 2>&1
 
