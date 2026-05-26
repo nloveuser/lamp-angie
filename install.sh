@@ -17,6 +17,7 @@ DB_ROOT_PASS="${DB_ROOT_PASS:-$(openssl rand -base64 16)}"
 WEBROOT="/var/www/html"
 ACME_EMAIL=""
 DOMAIN=""
+export DEBIAN_FRONTEND=noninteractive
 
 SCRIPT_VERSION="1.0.0"
 SCRIPT_CHANGELOG="1.0.0 - Initial release"
@@ -194,6 +195,7 @@ server {
 EOF
 
 # ── Test page ─────────────────────────────────────────────────────────────────
+mkdir -p "${WEBROOT}"
 echo "<?php phpinfo();" > "${WEBROOT}/info.php"
 chown www-data:www-data "${WEBROOT}/info.php"
 
