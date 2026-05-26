@@ -6,21 +6,24 @@
 # Usage:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/nloveuser/lamp-angie/refs/heads/main/install.sh)
 #
-# version: 1.0.0
+# version: 1.1.0
 # change-log:
 #   1.0.0 - Initial release
+#   1.1.0 - Fixed ACME config syntax, moved acme_client to http block, fixed MariaDB init
 
 set -euo pipefail
+
+SCRIPT_VERSION="1.1.0"
+SCRIPT_CHANGELOG="1.0.0 - Initial release
+  1.1.0 - Fixed ACME config syntax, moved acme_client to http block, fixed MariaDB init"
 
 PHP_VER="8.4"
 DB_ROOT_PASS="${DB_ROOT_PASS:-$(openssl rand -base64 16)}"
 WEBROOT="/var/www/html"
 ACME_EMAIL=""
 DOMAIN=""
+ACME_NAME="main"
 export DEBIAN_FRONTEND=noninteractive
-
-SCRIPT_VERSION="1.0.0"
-SCRIPT_CHANGELOG="1.0.0 - Initial release"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info() { echo -e "${GREEN}[+]${NC} $*"; }
@@ -59,16 +62,14 @@ apt-get install -y -qq curl ca-certificates > /dev/null 2>&1
 # ── Angie ─────────────────────────────────────────────────────────────────────
 info "Adding Angie repo..."
 curl -fsSL https://angie.software/keys/angie-signing.gpg \
-  -o /etc/apt/trusted.gpg.d/angie-signing.gpg
+  -o /etc/apt/trusted.gpg.d/angie-signing.gpg 2>/dev/null
 
-# Official format from angie.software/angie/docs/installation/oss_packages/
-# deb https://download.angie.software/angie/<ID>/<VERSION_ID> <VERSION_CODENAME> main
 echo "deb https://download.angie.software/angie/${DISTRO}/${VERSION_ID} ${CODENAME} main" \
   > /etc/apt/sources.list.d/angie.list
 
-apt-get update -qq
+apt-get update -qq > /dev/null 2>&1
 info "Installing Angie..."
-apt-get install -y -qq angie
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq angie > /dev/null 2>&1
 
 # ── PHP 8.4 ───────────────────────────────────────────────────────────────────
 info "Adding ondrej/php repo (PHP ${PHP_VER})..."
@@ -114,7 +115,9 @@ DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';
 FLUSH PRIVILEGES;
 EOF
 
-# ── fastcgi-php snippet ───────────────────────────────────────────────────────
+# ── Angie config ──────────────────────────────────────────────────────────────
+info "Writing Angie config..."
+
 PHP_SOCK="/run/php/php${PHP_VER}-fpm.sock"
 
 mkdir -p /etc/angie/snippets
@@ -127,49 +130,44 @@ include fastcgi_params;
 fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
 EOF
 
-# ── ACME dir ──────────────────────────────────────────────────────────────────
-ACME_DIR="/etc/angie/acme"
-mkdir -p "${ACME_DIR}"
-chown -R www-data:www-data "${ACME_DIR}"
+# acme_client must be in http {} block
+mkdir -p /etc/angie/conf.d
+cat > /etc/angie/conf.d/acme.conf <<EOF
+resolver 1.1.1.1 8.8.8.8 valid=300s;
+resolver_timeout 5s;
 
-# ── Angie config ──────────────────────────────────────────────────────────────
-info "Writing Angie config..."
+acme_client ${ACME_NAME} https://acme-v02.api.letsencrypt.org/directory
+    email=${ACME_EMAIL};
+EOF
 
-# Remove default config if exists
+# Ensure conf.d is included in http block
+if ! grep -q 'conf.d' /etc/angie/angie.conf; then
+  sed -i '/http {/a\    include /etc/angie/conf.d/*.conf;' /etc/angie/angie.conf
+fi
+
 rm -f /etc/angie/http.d/default.conf
 
 cat > "/etc/angie/http.d/${DOMAIN}.conf" <<EOF
-# ACME account — shared across all server blocks
-acme_client main_acme https://acme-v02.api.letsencrypt.org/directory
-    email ${ACME_EMAIL}
-    path  ${ACME_DIR};
-
-# HTTP — redirect to HTTPS + serve ACME challenges
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN} www.${DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root ${WEBROOT};
-    }
 
     location / {
         return 301 https://\$host\$request_uri;
     }
 }
 
-# HTTPS
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
     server_name ${DOMAIN} www.${DOMAIN};
 
-    ssl_certificate     \$acme_cert main_acme;
-    ssl_certificate_key \$acme_cert_key main_acme;
+    ssl_certificate     \$acme_cert_${ACME_NAME};
+    ssl_certificate_key \$acme_cert_key_${ACME_NAME};
 
-    acme main_acme;
+    acme ${ACME_NAME};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -194,12 +192,12 @@ server {
 }
 EOF
 
-# ── Test page ─────────────────────────────────────────────────────────────────
+# ── Web root & test page ──────────────────────────────────────────────────────
 mkdir -p "${WEBROOT}"
 echo "<?php phpinfo();" > "${WEBROOT}/info.php"
 chown www-data:www-data "${WEBROOT}/info.php"
 
-# ── Services ──────────────────────────────────────────────────────────────────
+# ── Enable & start services ───────────────────────────────────────────────────
 info "Enabling services..."
 systemctl enable --now "php${PHP_VER}-fpm" > /dev/null 2>&1
 angie -t > /dev/null 2>&1 && systemctl enable --now angie > /dev/null 2>&1
@@ -219,7 +217,7 @@ echo -e "  phpinfo:  https://${DOMAIN}/info.php"
 echo ""
 echo -e "${YELLOW}  DB root password: ${DB_ROOT_PASS}${NC}"
 echo -e "${YELLOW}  Save it! Remove /info.php after testing.${NC}"
-echo -e ""
+echo ""
 echo -e "  SSL cert will be issued automatically on first request."
 echo -e "  Make sure DNS A-record for ${DOMAIN} points to this server."
 echo -e "${GREEN}══════════════════════════════════════════${NC}"
